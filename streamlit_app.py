@@ -5,7 +5,8 @@ import boto3
 def getWeatherData(station, year):
     session = boto3.Session(
         aws_access_key_id=st.secrets["ACCESS_KEY"],
-        aws_secret_access_key=st.secrets["ACCESS_SECRET"]
+        aws_secret_access_key=st.secrets["ACCESS_SECRET"],
+        region_name="eu-west-1"
     )
     
     table = session.resource("dynamodb").Table("weather_dwd_actual")
