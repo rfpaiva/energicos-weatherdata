@@ -34,6 +34,8 @@ def getWeatherData(station, year):
         print(len(data))
         
     df = pd.json_normalize(data)
+    fieldOrder = ["pk", "sk", "temperature", "humidity", "clouds", "precipitation", "pressure", "windSpeed", "lat", "lon"]
+    df = df[fieldOrder]
     return df.to_csv(index=False)
 
 STATIONS = {
