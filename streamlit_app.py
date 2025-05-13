@@ -16,6 +16,7 @@ def getWeatherData(station, year):
         KeyConditionExpression="#pk = :pk AND begins_with(#sk, :sk)",
         ExpressionAttributeNames={"#pk": "pk", "#sk": "sk"},
         ExpressionAttributeValues={":pk": pk, ":sk": sk},
+        ProjectionExpression = "pk, sk, temperature, humidity, clouds, precipitation, pressure, windSpeed, lat, lon"
     )
 
     data = response['Items']
@@ -25,6 +26,7 @@ def getWeatherData(station, year):
             KeyConditionExpression="#pk = :pk AND begins_with(#sk, :sk)",
             ExpressionAttributeNames={"#pk": "pk", "#sk": "sk"},
             ExpressionAttributeValues={":pk": pk, ":sk": sk},
+            ProjectionExpression = "pk, sk, temperature, humidity, clouds, precipitation, pressure, windSpeed, lat, lon",
             ExclusiveStartKey=response['LastEvaluatedKey']
         )
 
