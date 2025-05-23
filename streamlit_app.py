@@ -2,7 +2,35 @@ import streamlit as st
 import pandas as pd
 import boto3
 
-def getWeatherData(station, year):
+def getAvgData(pk):
+    session = boto3.Session(
+        aws_access_key_id=st.secrets["ACCESS_KEY"],
+        aws_secret_access_key=st.secrets["ACCESS_SECRET"],
+        region_name="eu-west-1"
+    )
+    
+    table = session.resource("dynamodb").Table("weather_dwd_dataset")
+    response = table.query(
+        KeyConditionExpression="#pk = :pk",
+        ExpressionAttributeNames={"#pk": "pk"},
+        ExpressionAttributeValues={":pk": pk},
+    )
+
+    data = response['Items']
+
+    while 'LastEvaluatedKey' in response:
+        response = table.query(
+            KeyConditionExpression="#pk = :pk",
+            ExpressionAttributeNames={"#pk": "pk"},
+            ExpressionAttributeValues={":pk": pk},
+            ExclusiveStartKey=response['LastEvaluatedKey']
+        )
+
+        data.extend(response['Items'])
+
+    return data
+
+def getWeatherData(pk, year):
     session = boto3.Session(
         aws_access_key_id=st.secrets["ACCESS_KEY"],
         aws_secret_access_key=st.secrets["ACCESS_SECRET"],
@@ -10,7 +38,6 @@ def getWeatherData(station, year):
     )
     
     table = session.resource("dynamodb").Table("weather_dwd_actual")
-    pk = STATIONS[station]['pk']
     sk = f"timestamp#{year}"
     response = table.query(
         KeyConditionExpression="#pk = :pk AND begins_with(#sk, :sk)",
@@ -31,12 +58,43 @@ def getWeatherData(station, year):
         )
 
         data.extend(response['Items'])
-        print(len(data))
-        
-    df = pd.json_normalize(data)
+
+    return data
+
+def buildCSV(station, year):
+    pk = STATIONS[station]['pk']
+    weatherResults = getWeatherData(pk, year)
+    stationName = pk.split('#')[1]
+    datasets = {
+        "avg_20": [],
+        "avg_15": [],
+        "avg_10": [],
+        "min_20": [],
+        "min_15": [],
+        "min_10": [],
+        "max_20": [],
+        "max_15": [],
+        "max_10": [],
+    }
+    datasetResults = []
+    for ds in datasets:
+        datasetResults.append(getAvgData(f"wea_{ds}#{stationName}"))
+
+    df = pd.json_normalize(weatherResults)
     fieldOrder = ["pk", "sk", "temperature", "humidity", "clouds", "precipitation", "pressure", "windSpeed", "lat", "lon"]
     df = df[fieldOrder]
+
+    for i in range(0, 8784):
+        hour = datasetResults[0][i]['sk'].split('#')[1]
+        if(len([wea for wea in weatherResults if hour in wea['sk']]) > 0):
+            for j, (_, value) in enumerate(datasets.items()):
+                value.append(datasetResults[j][i]['temperature'])
+    
+    for key, temps in datasets.items():
+        df[key] = temps
+
     return df.to_csv(index=False)
+
 
 STATIONS = {
     "Berlin Buch - 00400": {"station_id": "00400", "name": "Berlin Buch", "latitude": 52.630956, "longitude": 13.502135, "height": "60 m", "plz": "13125", "pk": "wea#berlin-buch"},
@@ -74,7 +132,7 @@ year = st.selectbox("Select a year:", years, None, placeholder="Select")
 if st.button("Prepare file", disabled=not station or not year):
     st.download_button(
         "Download Selection as CSV",
-        data=getWeatherData(station, year),
+        data=buildCSV(station, year),
         file_name=f"{station}-{year}.csv",
         mime="text/csv",on_click="ignore",
         type="primary",
