@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import boto3
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 def getAvgData(pk):
     session = boto3.Session(
@@ -61,9 +63,8 @@ def getWeatherData(pk, year):
 
     return data
 
-def buildCSV(station, year):
+async def buildCSV(station, year):
     pk = STATIONS[station]['pk']
-    weatherResults = getWeatherData(pk, year)
     stationName = pk.split('#')[1]
     datasets = {
         "avg_20": [],
@@ -76,24 +77,31 @@ def buildCSV(station, year):
         "max_15": [],
         "max_10": [],
     }
-    datasetResults = []
-    for ds in datasets:
-        datasetResults.append(getAvgData(f"wea_{ds}#{stationName}"))
 
-    df = pd.json_normalize(weatherResults)
-    fieldOrder = ["pk", "sk", "temperature", "humidity", "clouds", "precipitation", "pressure", "windSpeed", "lat", "lon"]
-    df = df[fieldOrder]
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor() as executor:
+        tGetData = loop.run_in_executor(executor, getWeatherData, pk, year)
+        tasks = [
+            loop.run_in_executor(executor, getAvgData, f"wea_{ds}#{stationName}")
+            for ds in datasets
+        ]
+        datasetResults = await asyncio.gather(*tasks)
+        weatherResults = await tGetData
 
-    for i in range(0, 8784):
-        hour = datasetResults[0][i]['sk'].split('#')[1]
-        if(len([wea for wea in weatherResults if hour in wea['sk']]) > 0):
-            for j, (_, value) in enumerate(datasets.items()):
-                value.append(datasetResults[j][i]['temperature'])
-    
-    for key, temps in datasets.items():
-        df[key] = temps
+        df = pd.json_normalize(weatherResults)
+        fieldOrder = ["pk", "sk", "temperature", "humidity", "clouds", "precipitation", "pressure", "windSpeed", "lat", "lon"]
+        df = df[fieldOrder]
 
-    return df.to_csv(index=False)
+        for i in range(0, 8784):
+            hour = datasetResults[0][i]['sk'].split('#')[1]
+            if(len([wea for wea in weatherResults if hour in wea['sk']]) > 0):
+                for j, (_, value) in enumerate(datasets.items()):
+                    value.append(datasetResults[j][i]['temperature'])
+        
+        for key, temps in datasets.items():
+            df[key] = temps
+
+        return df.to_csv(index=False)
 
 
 STATIONS = {
@@ -132,7 +140,7 @@ year = st.selectbox("Select a year:", years, None, placeholder="Select")
 if st.button("Prepare file", disabled=not station or not year):
     st.download_button(
         "Download Selection as CSV",
-        data=buildCSV(station, year),
+        data=asyncio.run(buildCSV(station, year)),
         file_name=f"{station}-{year}.csv",
         mime="text/csv",on_click="ignore",
         type="primary",
