@@ -4,6 +4,8 @@ import boto3
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+HOURS_IN_YEAR = 8760
+
 def getAvgData(pk):
     session = boto3.Session(
         aws_access_key_id=st.secrets["ACCESS_KEY"],
@@ -92,14 +94,12 @@ async def buildCSV(station, year):
         fieldOrder = ["pk", "sk", "temperature", "humidity", "clouds", "precipitation", "pressure", "windSpeed", "lat", "lon"]
         df = df[fieldOrder]
 
-        for i in range(0, 8784):
-            hour = datasetResults[0][i]['sk'].split('#')[1]
-            if(len([wea for wea in weatherResults if hour in wea['sk']]) > 0):
-                for j, (_, value) in enumerate(datasets.items()):
-                    value.append(datasetResults[j][i]['temperature'])
-        
-        for key, temps in datasets.items():
-            df[key] = temps
+        for ds in datasetResults:
+            key = ds[0]['pk'][4:10]
+            if len(weatherResults) == HOURS_IN_YEAR:
+                df[key] = [item['temperature'] for item in ds if not item['sk'].startswith("hour#02-29")]
+            else:
+                df[key] = [item['temperature'] for item in ds]
 
         return df.to_csv(index=False)
 
